@@ -1,0 +1,41 @@
+
+/*
+type response struct {
+	value   interface{}
+	refresh *time.Duration
+	grace   *time.Duration
+	err     error
+}
+
+type requestTicket struct {
+	respWg   sync.WaitGroup // this can be done with sync.Cond
+	waiters  sync.WaitGroup
+	response *response
+}
+
+func (fm *fetchManager) Fetch(key interface{}) (interface{}, *time.Duration, *time.Duration, error) {
+	fm.ticketsLock.Lock()
+	ticket, ok := fm.tickets[key]
+	if !ok {
+		ticket = &requestTicket{}
+		fm.tickets[key] = ticket
+		ticket.respWg.Add(1)
+		ticket.waiters.Add(1)
+		fm.ticketsLock.Unlock()
+		go func() {
+			v, r, g, err := fm.fetch(key)
+			ticket.response = &response{v, r, g, err}
+			ticket.respWg.Done()
+			// delete ticket once waiters read off value
+			ticket.waiters.Wait()
+			delete(fm.tickets, key)
+		}()
+	} else {
+		ticket.waiters.Add(1)
+		fm.ticketsLock.Unlock()
+	}
+	ticket.respWg.Wait()
+	defer ticket.waiters.Done()
+	return ticket.response.value, ticket.response.refresh, ticket.response.grace, ticket.response.err
+}
+*/
