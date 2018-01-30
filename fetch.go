@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"time"
 )
 
@@ -10,38 +11,62 @@ type ItemFetchResponse struct {
 	TimeToLive      *time.Duration
 }
 
-type ItemFetch func(key interface{}) (*ItemFetchResponse, error)
+type ItemFetcher interface {
+	FetchItem(key interface{}) (*ItemFetchResponse, error)
+	Cancel(key interface{})
+}
 
 type ItemTimeout func(key interface{}) *time.Duration
 
 type fetchManager struct {
-	fetchFn       ItemFetch
+	fetcher       ItemFetcher
 	globalTimout  *time.Duration
 	timeout       ItemTimeout
 	coalesceGroup *Group
 }
 
-func newFetchManager(fetch ItemFetch, globalTimout *time.Duration, timeout ItemTimeout) *fetchManager {
-	return &fetchManager{fetchFn: fetch, timeout: timeout, globalTimout: globalTimout, coalesceGroup: &Group{}}
+func newFetchManager(fetch ItemFetcher, globalTimout *time.Duration, timeout ItemTimeout) *fetchManager {
+	return &fetchManager{fetcher: fetch, timeout: timeout, globalTimout: globalTimout, coalesceGroup: &Group{}}
 }
 
 func (fm *fetchManager) fetch(key interface{}) (*ItemFetchResponse, error) {
-
-	// TODO: resolve timeout and implement timeout
-	resp, err := fm.coalesceGroup.Do(key, func() (interface{}, error) {
-		return fm.fetchFn(key)
-	})
-	if err != nil {
-		return nil, err
+	t := fm.resolveTimeout(key)
+	ctx, cancel := context.WithCancel(context.Background())
+	if t != nil {
+		ctx, cancel = context.WithTimeout(context.Background(), *t)
 	}
-	return resp.(*ItemFetchResponse), nil
+	defer cancel()
+
+	c := make(chan struct {
+		r   *ItemFetchResponse
+		err error
+	}, 1)
+	go func() {
+		resp, err := fm.coalesceGroup.Do(key, func() (interface{}, error) {
+			return fm.fetcher.FetchItem(key)
+		})
+		pack := struct {
+			r   *ItemFetchResponse
+			err error
+		}{resp.(*ItemFetchResponse), err}
+		c <- pack
+	}()
+	select {
+	case <-ctx.Done():
+		fm.fetcher.Cancel(key)
+		return nil, ctx.Err()
+	case ok := <-c:
+		return ok.r, ok.err
+	}
 }
 
 func (fm *fetchManager) resolveTimeout(key interface{}) *time.Duration {
 	timeout := fm.globalTimout
-	t := fm.timeout(key)
-	if t != nil {
-		timeout = t
+	if fm.timeout != nil {
+		t := fm.timeout(key)
+		if t != nil {
+			timeout = t
+		}
 	}
 	return timeout
 }

@@ -30,7 +30,7 @@ type Cache struct {
 }
 
 // NewCache creates a new prefetch cache using the specified ItemFetcher and fetch timeout
-func NewCache(fetch ItemFetch, globalTimeout *time.Duration, timeout ItemTimeout) (*Cache, error) {
+func NewCache(fetch ItemFetcher, globalTimeout *time.Duration, timeout ItemTimeout) (*Cache, error) {
 	if fetch == nil {
 		return nil, fmt.Errorf("Item fetch function cannot be nil")
 	}
@@ -53,8 +53,12 @@ func (c *Cache) WithStore(store ConcurrentKVStore) *Cache {
 	return c
 }
 
-func (c *Cache) WithGlobalCacheControls(refresh *time.Duration, timeToLive *time.Duration) *Cache {
+func (c *Cache) WithGlobalRefreshInterval(refresh *time.Duration) *Cache {
 	c.refreshInterval = refresh
+	return c
+}
+
+func (c *Cache) WithGlobalTTL(timeToLive *time.Duration) *Cache {
 	c.timeToLive = timeToLive
 	return c
 }
