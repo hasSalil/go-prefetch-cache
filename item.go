@@ -1,6 +1,6 @@
 package cache
 
-type Item struct {
-	Value      interface{}
-	Generation int64
+type item struct {
+	value      interface{}
+	generation int64
 }

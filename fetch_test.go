@@ -12,31 +12,6 @@ const keyUsingGlobalTimeout = "global"
 const keyUsingOverrideTimeout = "override"
 const keyWithError = "errKey"
 
-type mockFetcherWithTimeout struct {
-	*mockBackend
-	cancelledReqs map[interface{}]struct{}
-}
-
-func (mf *mockFetcherWithTimeout) FetchItem(key interface{}) (*ItemFetchResponse, error) {
-	ks := key.(string)
-	fn := mf.do
-	if ks == keyWithError {
-		fn = mf.doErr
-	}
-	r, err := fn()
-	if err != nil {
-		return nil, err
-	}
-	return &ItemFetchResponse{Value: r}, nil
-}
-
-func (mf *mockFetcherWithTimeout) Cancel(key interface{}) {
-	if mf.cancelledReqs == nil {
-		mf.cancelledReqs = make(map[interface{}]struct{})
-	}
-	mf.cancelledReqs[key] = struct{}{}
-}
-
 func TestResolveTimeout(t *testing.T) {
 	gd := time.Second
 	fm := &fetchManager{globalTimout: &gd, timeout: func(key interface{}) *time.Duration {
@@ -59,8 +34,10 @@ func TestFetchTimeout(t *testing.T) {
 	gd := time.Second * 2
 	fm := &fetchManager{
 		coalesceGroup: &Group{},
-		fetcher:       &mockFetcherWithTimeout{mockBackend: &mockBackend{}},
-		globalTimout:  &gd,
+		fetcher: &mockFetcher{
+			mockBackend: &mockBackend{perCallSleep: time.Millisecond * 7},
+		},
+		globalTimout: &gd,
 		timeout: func(key interface{}) *time.Duration {
 			ks := key.(string)
 			if ks == keyUsingOverrideTimeout {
@@ -90,7 +67,9 @@ func TestFetchTimeout(t *testing.T) {
 func TestFetchNoTimeouts(t *testing.T) {
 	fm := &fetchManager{
 		coalesceGroup: &Group{},
-		fetcher:       &mockFetcherWithTimeout{mockBackend: &mockBackend{}},
+		fetcher: &mockFetcher{
+			mockBackend: &mockBackend{perCallSleep: time.Millisecond * 7},
+		},
 	}
 
 	r, err := fm.fetch("some key")

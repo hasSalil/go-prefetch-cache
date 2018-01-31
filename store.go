@@ -5,7 +5,7 @@ import "sync"
 // ConcurrentKVStore is an interface for a thread-safe key value store that will back the cache
 type ConcurrentKVStore interface {
 	Set(key, value interface{})
-	RemoveIfPredicate(key interface{}, predicate func(value interface{}) bool)
+	RemoveIfPredicate(key interface{}, predicate func(value interface{}) bool) bool
 	Get(key interface{}) (interface{}, bool)
 }
 
@@ -25,13 +25,15 @@ func (cm *ConcurrentMapStore) Set(key, value interface{}) {
 	cm.lock.Unlock()
 }
 
-func (cm *ConcurrentMapStore) RemoveIfPredicate(key interface{}, predicate func(value interface{}) bool) {
+func (cm *ConcurrentMapStore) RemoveIfPredicate(key interface{}, predicate func(value interface{}) bool) bool {
 	cm.lock.Lock()
+	defer cm.lock.Unlock()
 	v, ok := cm.kv[key]
 	if ok && predicate(v) {
 		delete(cm.kv, key)
+		return true
 	}
-	cm.lock.Unlock()
+	return false
 }
 
 func (cm *ConcurrentMapStore) Get(key interface{}) (interface{}, bool) {

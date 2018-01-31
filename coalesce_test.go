@@ -1,46 +1,24 @@
 package cache
 
 import (
-	"errors"
 	"fmt"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-var perCallSleep = time.Millisecond * 7
 var totalConcurrency = runtime.NumCPU() * 100
 
-var value = "value"
-var errBackend = errors.New("some error")
-
-type mockBackend struct {
-	touches uint32
-}
-
-func (mb *mockBackend) do() (interface{}, error) {
-	time.Sleep(perCallSleep)
-	atomic.AddUint32(&mb.touches, 1)
-	return value, nil
-}
-
-func (mb *mockBackend) doErr() (interface{}, error) {
-	time.Sleep(perCallSleep)
-	atomic.AddUint32(&mb.touches, 1)
-	return nil, errBackend
-}
-
 func TestCoalesce(t *testing.T) {
-	mb := &mockBackend{}
+	mb := &mockBackend{perCallSleep: time.Millisecond * 7}
 	doTestCoalesce(t, mb, mb.do, value, nil)
 }
 
 func TestCoalesceErr(t *testing.T) {
-	mb := &mockBackend{}
+	mb := &mockBackend{perCallSleep: time.Millisecond * 7}
 	doTestCoalesce(t, mb, mb.doErr, nil, errBackend)
 }
 

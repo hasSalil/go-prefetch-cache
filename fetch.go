@@ -14,6 +14,7 @@ type ItemFetchResponse struct {
 type ItemFetcher interface {
 	FetchItem(key interface{}) (*ItemFetchResponse, error)
 	Cancel(key interface{})
+	Close() error
 }
 
 type ItemTimeout func(key interface{}) *time.Duration
@@ -58,6 +59,10 @@ func (fm *fetchManager) fetch(key interface{}) (*ItemFetchResponse, error) {
 	case ok := <-c:
 		return ok.r, ok.err
 	}
+}
+
+func (fm *fetchManager) close() error {
+	return fm.fetcher.Close()
 }
 
 func (fm *fetchManager) resolveTimeout(key interface{}) *time.Duration {

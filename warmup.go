@@ -7,10 +7,6 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 )
 
-type CacheWarmer interface {
-	WarmUp(c *Cache) error
-}
-
 func (c *Cache) Warmup(concurrency uint, keys ...interface{}) error {
 	if keys == nil || len(keys) == 0 {
 		return nil
