@@ -4,9 +4,6 @@
 
 // LICENSE file can be found at https://golang.org/LICENSE
 
-// Package singleflight provides a duplicate function call suppression
-// mechanism.
-
 package cache
 
 import "sync"
