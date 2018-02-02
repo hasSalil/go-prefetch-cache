@@ -135,10 +135,11 @@ func (c *Cache) Get(key interface{}) (interface{}, error) {
 }
 
 func (c *Cache) get(key interface{}) (bool, interface{}, error) {
-	v, ok := c.store.Get(key)
+	it, ok := c.store.Get(key)
 	if ok {
 		// hit
-		return true, v, nil
+		item := it.(item)
+		return true, item.value, nil
 	}
 	// miss
 	v, err := c.refreshKey(key, "")

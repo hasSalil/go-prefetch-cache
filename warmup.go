@@ -45,13 +45,3 @@ func (c *Cache) Warmup(concurrency uint, keys ...interface{}) error {
 	}
 	return errs
 }
-
-/* func (c *Cache) WarmupChannel(keyCh <-chan *interface{}) error {
-	var errs error
-	for key := range keyCh {
-		if _, err := c.RefreshKey(key); err != nil {
-			errs = multierror.Append(errs, err)
-		}
-	}
-	return errs
-} */

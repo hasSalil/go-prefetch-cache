@@ -67,6 +67,10 @@ func (fm *fetchManager) fetch(key interface{}, nonce string) (*ItemFetchResponse
 						err = errors.New("no response from backend")
 					}
 				}
+
+				// COULDDO: If miss latencies are too high, we can put the result on
+				// a channel and return or do set in a go routine. That may result
+				// in extra FetchItem calls to backend though.
 				fm.c.set(key, r, t, val, nonce, err)
 			}
 			return fetched, err

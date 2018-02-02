@@ -20,7 +20,7 @@ var monChSize = 20000000
 var totalRequestPerRound = 1000
 var numKeys = 1
 var keyContention = totalRequestPerRound / numKeys
-var rounds = 10000
+var rounds = 1000
 var cacheTestBackendDelay = time.Millisecond * 2
 
 func getKeys() []interface{} {
@@ -267,13 +267,10 @@ func TestWarmedRefreshNoEvict(t *testing.T) {
 	if err := c.Warmup(10, keys...); err != nil {
 		t.Fatal(err)
 	}
-	uniqVals, _ := doCacheTest(c, t)
+	doCacheTest(c, t)
 	mon := ((c.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
 	refreshes := int(mon.getRefreshCount())
 	assert.True(t, refreshes > 0)
-	unseenRefreshes := refreshes - len(uniqVals)
-	assert.True(t, unseenRefreshes >= 0)
-	assert.True(t, float64(unseenRefreshes)/float64(refreshes) <= 0.05) // Note: this may need to be higher than 5% on some machines
 }
 
 func TestColdRefreshNoEvict(t *testing.T) {
@@ -292,10 +289,9 @@ func TestColdRefreshNoEvict(t *testing.T) {
 	mon := ((c.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
 	refreshes := int(mon.getRefreshCount())
 	assert.True(t, refreshes > 0)
-	unseenRefreshes := refreshes - len(uniqVals)
-	assert.True(t, unseenRefreshes >= 0)
-	//assert.True(t, float64(unseenRefreshes)/float64(refreshes) <= 0.05) // Note: this may need to be higher than 5% on some machines
+	assert.Equal(t, int(mon.getSetCount()), len(uniqVals))
 }
 
 //TODO:
-// Test eviction, misses, slow/failed fetches causing eviction and misses
+// Test slow/failed fetches causing repeated misses
+// Test ttl eviction
