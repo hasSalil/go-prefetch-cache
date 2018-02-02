@@ -30,7 +30,7 @@ func (c *Cache) Warmup(concurrency uint, keys ...interface{}) error {
 		keyShard := keys[s:e]
 		go func() {
 			for _, key := range keyShard {
-				if _, err := c.RefreshKey(key); err != nil {
+				if _, err := c.refreshKey(key, ""); err != nil {
 					errCh <- err
 				}
 			}
@@ -46,7 +46,7 @@ func (c *Cache) Warmup(concurrency uint, keys ...interface{}) error {
 	return errs
 }
 
-func (c *Cache) WarmupChannel(keyCh <-chan *interface{}) error {
+/* func (c *Cache) WarmupChannel(keyCh <-chan *interface{}) error {
 	var errs error
 	for key := range keyCh {
 		if _, err := c.RefreshKey(key); err != nil {
@@ -54,4 +54,4 @@ func (c *Cache) WarmupChannel(keyCh <-chan *interface{}) error {
 		}
 	}
 	return errs
-}
+} */

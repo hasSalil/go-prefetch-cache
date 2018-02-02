@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-multierror"
+	uuid "github.com/satori/go.uuid"
 )
 
 var errClosed = fmt.Errorf("Operation not permitted after closing cache")
@@ -32,6 +33,7 @@ type Cache struct {
 	monitor         Monitor
 	closed          bool
 	lock            sync.RWMutex
+	debugEvents     chan debugEvent
 }
 
 // NewCache creates a new prefetch cache using the provided ItemFetcher, global timeout,
@@ -47,10 +49,9 @@ func NewCache(fetcher ItemFetcher, globalTimeout *time.Duration, timeout ItemTim
 			return nil
 		}
 	}
-	return &Cache{
-		store:        NewConcurrentMapStore(),
-		fetchManager: newFetchManager(fetcher, globalTimeout, timeout),
-	}, nil
+	c := &Cache{store: NewConcurrentMapStore()}
+	c.fetchManager = newFetchManager(c, fetcher, globalTimeout, timeout)
+	return c, nil
 }
 
 // WithStore builds a cache with the provided store implementation
@@ -140,62 +141,99 @@ func (c *Cache) get(key interface{}) (bool, interface{}, error) {
 		return true, v, nil
 	}
 	// miss
-	v, err := c.RefreshKey(key)
+	v, err := c.refreshKey(key, "")
 	return false, v, err
 }
 
-// RefreshKey fetches item for key, places it into the cache and returns the value or error
-func (c *Cache) RefreshKey(key interface{}) (interface{}, error) {
+func (c *Cache) refreshKey(key interface{}, nonce string) (interface{}, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	if c.closed {
 		return nil, errClosed
 	}
 	s := time.Now()
-	v, err := c.refreshKey(key)
-	if c.monitor != nil {
+	resp, err := c.fetchManager.fetch(key, nonce)
+	if c.monitor != nil && nonce != "" {
 		latency := time.Since(s)
 		c.monitor.Refresh(latency, err)
 	}
-	return v, err
-}
-
-func (c *Cache) refreshKey(key interface{}) (interface{}, error) {
-	resp, err := c.fetchManager.fetch(key)
 	if err != nil {
 		return nil, fmt.Errorf("Warm up fetch failed for %v due to %s", key, err)
 	}
-	c.set(key, resp.RefreshInterval, resp.TimeToLive, resp.Value)
 	return resp.Value, nil
 }
 
-// Set places the key value pair into the cache along with refresh and time to live metadata
-func (c *Cache) Set(key interface{}, refreshInterval, timeToLive *time.Duration, value interface{}) error {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	if c.closed {
-		return errClosed
-	}
-	c.set(key, refreshInterval, timeToLive, value)
-	return nil
-}
-
-func (c *Cache) set(key interface{}, refreshInterval, timeToLive *time.Duration, value interface{}) {
+func (c *Cache) set(key interface{}, refreshInterval, timeToLive *time.Duration, value interface{}, nonce string, fetchErr error) {
 	s := time.Now()
 	r, ttl := c.resolveControls(refreshInterval, timeToLive)
-	generation := time.Now().UnixNano()
-	c.store.Set(key, item{value: value, generation: generation})
-
-	if r != nil {
-		// Schedule next refresh
-		time.AfterFunc(*r, func() {
-			c.RefreshKey(key)
-		})
+	existingItem, ok := c.store.Get(key)
+	exists := ok && existingItem != nil
+	upsert := false
+	var evictAfter *time.Duration
+	if nonce == "" {
+		// called from miss code flow
+		// item may already exists if the miss code flow
+		// arrived here late. only upsert if no fetch error
+		if fetchErr == nil {
+			nonce = uuid.Must(uuid.NewV4()).String()
+			upsert = true
+			if r == nil {
+				// schedule eviction on first insert only if
+				// no refresh schedule for this key
+				evictAfter = ttl
+			}
+		} else {
+			c.sendDebugEvent("fetch-err-on-miss")
+		}
+		if exists {
+			c.sendDebugEvent("extra-miss-set")
+		}
+	} else {
+		// called from refresh cycle
+		// upsert only if still exists; if a previously existing item was deleted, or evicted by TTL
+		// don't auto refresh it (we don't know why this item got removed)
+		if exists {
+			it := existingItem.(item)
+			if nonce == it.nonce {
+				// matching nonce ensures that we don't have multiple refresh schedules
+				// for the same item
+				if fetchErr == nil {
+					upsert = true
+				} else {
+					c.sendDebugEvent("fetch-err-on-refresh")
+					if ttl != nil && r != nil {
+						// this item has already lived for period r
+						// and cannot be refreshed due to error. enter
+						// grace period
+						grace := *ttl - *r
+						evictAfter = &grace
+					}
+				}
+			} else {
+				c.sendDebugEvent("refresh-nonce-mismatch")
+			}
+		} else {
+			c.sendDebugEvent("refresh-after-removed")
+		}
 	}
 
-	if ttl != nil {
+	generation := time.Now().UnixNano()
+	if upsert {
+		c.store.Set(key, item{value: value, nonce: nonce, generation: generation})
+		if r != nil {
+			// Schedule next refresh
+			time.AfterFunc(*r, func() {
+				c.refreshKey(key, nonce)
+			})
+		}
+		if c.monitor != nil {
+			latency := time.Since(s)
+			c.monitor.Set(latency)
+		}
+	}
+	if evictAfter != nil {
 		// Schedule eviction that evicts if previous or current generation
-		time.AfterFunc(*ttl, func() {
+		time.AfterFunc(*evictAfter, func() {
 			if removed := c.store.RemoveIfPredicate(key, func(i interface{}) bool {
 				item, _ := i.(item)
 				return item.generation <= generation
@@ -205,10 +243,6 @@ func (c *Cache) set(key interface{}, refreshInterval, timeToLive *time.Duration,
 				}
 			}
 		})
-	}
-	if c.monitor != nil {
-		latency := time.Since(s)
-		c.monitor.Set(latency)
 	}
 }
 

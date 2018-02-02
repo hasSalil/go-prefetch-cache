@@ -48,17 +48,17 @@ func TestFetchTimeout(t *testing.T) {
 		},
 	}
 
-	r, err := fm.fetch(keyUsingGlobalTimeout)
+	r, err := fm.fetch(keyUsingGlobalTimeout, "")
 	assert.NotNil(t, r)
 	assert.Equal(t, value, r.Value)
 	assert.Nil(t, err)
 
-	r, err = fm.fetch(keyUsingOverrideTimeout)
+	r, err = fm.fetch(keyUsingOverrideTimeout, "")
 	assert.Nil(t, r)
 	assert.NotNil(t, err)
 	assert.Equal(t, context.DeadlineExceeded, err)
 
-	r, err = fm.fetch(keyWithError)
+	r, err = fm.fetch(keyWithError, "")
 	assert.Nil(t, r)
 	assert.NotNil(t, err)
 	assert.Equal(t, errBackend, err)
@@ -72,12 +72,12 @@ func TestFetchNoTimeouts(t *testing.T) {
 		},
 	}
 
-	r, err := fm.fetch("some key")
+	r, err := fm.fetch("some key", "")
 	assert.NotNil(t, r)
 	assert.Equal(t, value, r.Value)
 	assert.Nil(t, err)
 
-	r, err = fm.fetch(keyWithError)
+	r, err = fm.fetch(keyWithError, "")
 	assert.Nil(t, r)
 	assert.NotNil(t, err)
 	assert.Equal(t, errBackend, err)

@@ -10,16 +10,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
+
 	"github.com/montanaflynn/stats"
 	"github.com/stretchr/testify/assert"
 )
 
-var monChSize = 2000000
+var monChSize = 20000000
 var totalRequestPerRound = 1000
 var numKeys = 1
 var keyContention = totalRequestPerRound / numKeys
-var rounds = 10
-var cacheTestBackendDelay = time.Millisecond * 1
+var rounds = 10000
+var cacheTestBackendDelay = time.Millisecond * 2
 
 func getKeys() []interface{} {
 	ks := []interface{}{}
@@ -147,17 +149,17 @@ func (tm *testMonitor) summarizeLatencies(buffer *bytes.Buffer, i int) {
 		sort.Float64s(tm.latencies[i])
 		buffer.WriteString("\tp0\tp25\tp50\tp75\tp95\tp99\tp999\tp9999\tp99999\tp999999\tp9999999\tp99999999\t|\tpmax3\tpmax2\tpmax1\tp100\tavg\n")
 		min, _ := stats.Min(tm.latencies[i])
-		p25, _ := stats.Percentile(tm.latencies[i], 25)
-		med, _ := stats.Percentile(tm.latencies[i], 50)
-		p75, _ := stats.Percentile(tm.latencies[i], 75)
-		p95, _ := stats.Percentile(tm.latencies[i], 95)
-		p99, _ := stats.Percentile(tm.latencies[i], 99)
-		p999, _ := stats.Percentile(tm.latencies[i], 99.9)
-		p9999, _ := stats.Percentile(tm.latencies[i], 99.99)
-		p99999, _ := stats.Percentile(tm.latencies[i], 99.999)
-		p999999, _ := stats.Percentile(tm.latencies[i], 99.9999)
-		p9999999, _ := stats.Percentile(tm.latencies[i], 99.99999)
-		p99999999, _ := stats.Percentile(tm.latencies[i], 99.999999)
+		p25, _ := stats.PercentileNearestRank(tm.latencies[i], 25)
+		med, _ := stats.PercentileNearestRank(tm.latencies[i], 50)
+		p75, _ := stats.PercentileNearestRank(tm.latencies[i], 75)
+		p95, _ := stats.PercentileNearestRank(tm.latencies[i], 95)
+		p99, _ := stats.PercentileNearestRank(tm.latencies[i], 99)
+		p999, _ := stats.PercentileNearestRank(tm.latencies[i], 99.9)
+		p9999, _ := stats.PercentileNearestRank(tm.latencies[i], 99.99)
+		p99999, _ := stats.PercentileNearestRank(tm.latencies[i], 99.999)
+		p999999, _ := stats.PercentileNearestRank(tm.latencies[i], 99.9999)
+		p9999999, _ := stats.PercentileNearestRank(tm.latencies[i], 99.99999)
+		p99999999, _ := stats.PercentileNearestRank(tm.latencies[i], 99.999999)
 		max3 := -1.0
 		if samples >= 4 {
 			max3 = tm.latencies[i][samples-4]
@@ -180,12 +182,13 @@ func (tm *testMonitor) summarizeLatencies(buffer *bytes.Buffer, i int) {
 	}
 }
 
-func doCacheTest(c *Cache, t *testing.T) map[interface{}]struct{} {
+func doCacheTest(c *Cache, t *testing.T) (map[interface{}]int, map[string]int) {
 	start := time.Now()
 	mon := newTestMonitor()
 	c = c.WithChannelBasedMonitor(
 		mon, &monChSize, &monChSize, &monChSize, &monChSize, &monChSize,
 	)
+	c.debugEvents = make(chan debugEvent, 20000)
 	ks := getKeys()
 	vals := make(chan interface{}, totalRequestPerRound*rounds)
 	for r := 0; r < rounds; r++ {
@@ -206,21 +209,35 @@ func doCacheTest(c *Cache, t *testing.T) map[interface{}]struct{} {
 		wg.Wait()
 	}
 	c.Close()
-	uniqVals := make(map[interface{}]struct{})
 	close(vals)
+	close(c.debugEvents)
+	uniqVals := make(map[interface{}]int)
 	for val := range vals {
-		uniqVals[val] = struct{}{}
+		if _, ok := uniqVals[val]; ok {
+			uniqVals[val]++
+		} else {
+			uniqVals[val] = 1
+		}
+	}
+
+	debEvents := make(map[string]int)
+	for evt := range c.debugEvents {
+		if _, ok := debEvents[evt.name]; ok {
+			debEvents[evt.name]++
+		} else {
+			debEvents[evt.name] = 1
+		}
 	}
 	t.Logf("Test duration: %v", time.Since(start))
 	t.Logf("Unique get vals: %d", len(uniqVals))
 	t.Log(mon.summary())
 
-	return uniqVals
+	return uniqVals, debEvents
 }
 
 func TestWarmedNoRefreshNoEvict(t *testing.T) {
 	c, err := NewCache(
-		&mockFetcher{mockBackend: &mockBackend{perCallSleep: cacheTestBackendDelay}},
+		&mockFetcher{mockBackend: &mockBackend{useTimestampValue: true, perCallSleep: cacheTestBackendDelay}},
 		nil, nil,
 	)
 	if err != nil {
@@ -230,16 +247,16 @@ func TestWarmedNoRefreshNoEvict(t *testing.T) {
 	if err := c.Warmup(10, keys...); err != nil {
 		t.Fatal(err)
 	}
-	uniqVals := doCacheTest(c, t)
+	uniqVals, _ := doCacheTest(c, t)
 	assert.Equal(t, len(keys), len(uniqVals))
 	mon := ((c.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
 	assert.Equal(t, uint32(0), mon.getRefreshCount())
 }
 
 func TestWarmedRefreshNoEvict(t *testing.T) {
-	refresh := time.Microsecond * 1000
+	refresh := time.Second * 2
 	c, err := NewCache(
-		&mockFetcher{mockBackend: &mockBackend{perCallSleep: cacheTestBackendDelay}},
+		&mockFetcher{mockBackend: &mockBackend{useTimestampValue: true, perCallSleep: cacheTestBackendDelay}},
 		nil, nil,
 	)
 	if err != nil {
@@ -250,7 +267,7 @@ func TestWarmedRefreshNoEvict(t *testing.T) {
 	if err := c.Warmup(10, keys...); err != nil {
 		t.Fatal(err)
 	}
-	uniqVals := doCacheTest(c, t)
+	uniqVals, _ := doCacheTest(c, t)
 	mon := ((c.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
 	refreshes := int(mon.getRefreshCount())
 	assert.True(t, refreshes > 0)
@@ -262,14 +279,16 @@ func TestWarmedRefreshNoEvict(t *testing.T) {
 func TestColdRefreshNoEvict(t *testing.T) {
 	refresh := time.Millisecond * 10
 	c, err := NewCache(
-		&mockFetcher{mockBackend: &mockBackend{perCallSleep: cacheTestBackendDelay}},
+		&mockFetcher{mockBackend: &mockBackend{useTimestampValue: true, perCallSleep: cacheTestBackendDelay}},
 		nil, nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c = c.WithGlobalRefreshInterval(&refresh)
-	uniqVals := doCacheTest(c, t)
+	uniqVals, debEvents := doCacheTest(c, t)
+	spew.Dump(uniqVals)
+	spew.Dump(debEvents)
 	mon := ((c.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
 	refreshes := int(mon.getRefreshCount())
 	assert.True(t, refreshes > 0)
@@ -279,5 +298,4 @@ func TestColdRefreshNoEvict(t *testing.T) {
 }
 
 //TODO:
-// Test misses with cold
 // Test eviction, misses, slow/failed fetches causing eviction and misses
