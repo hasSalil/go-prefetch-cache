@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,15 +112,18 @@ func doDistributionTest(t *testing.T, arch string, is64 bool, keys ...interface{
 
 type mockShardedFetcher struct {
 	*mockFetcher
+	lock             sync.Mutex
 	requestedFetches map[interface{}]int
 }
 
 func (sf *mockShardedFetcher) FetchItem(key interface{}) (*ItemFetchResponse, error) {
+	sf.lock.Lock()
 	if sf.requestedFetches == nil {
 		sf.requestedFetches = make(map[interface{}]int)
 	}
 
 	sf.requestedFetches[key]++
+	sf.lock.Unlock()
 	return sf.mockFetcher.FetchItem(key)
 }
 

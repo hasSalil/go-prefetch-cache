@@ -229,7 +229,8 @@ func doCacheTest(pc *PrefetchCache, t *testing.T) (map[interface{}]int, map[stri
 	}
 	t.Logf("Test duration: %v", time.Since(start))
 	t.Logf("Unique get vals: %d", len(uniqVals))
-	t.Log(pc.monitor.(*testMonitor).summary())
+	m := pc.monitor.(*ChannelBasedMonitor)
+	t.Log(m.monitor.(*testMonitor).summary())
 
 	return uniqVals, debEvents
 }
