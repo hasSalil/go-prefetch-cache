@@ -22,14 +22,14 @@ type ItemTimeout func(key interface{}) *time.Duration
 
 // TODO: Rename to refreshHandler
 type fetchManager struct {
-	c             *Cache
+	c             *PrefetchCache
 	fetcher       ItemFetcher
 	globalTimout  *time.Duration
 	timeout       ItemTimeout
 	coalesceGroup *Group
 }
 
-func newFetchManager(c *Cache, fetch ItemFetcher, globalTimout *time.Duration, timeout ItemTimeout) *fetchManager {
+func newFetchManager(c *PrefetchCache, fetch ItemFetcher, globalTimout *time.Duration, timeout ItemTimeout) *fetchManager {
 	return &fetchManager{c: c, fetcher: fetch, timeout: timeout, globalTimout: globalTimout, coalesceGroup: &Group{}}
 }
 

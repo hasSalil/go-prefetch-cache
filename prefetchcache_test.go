@@ -38,7 +38,7 @@ type testMonitor struct {
 	errCounts []uint32
 }
 
-func newTestMonitor() *testMonitor {
+func newTestMonitor() Monitor {
 	return &testMonitor{
 		latencies: make([]stats.Float64Data, 4, 4),
 		counts:    make([]uint32, 5, 5),
@@ -182,13 +182,12 @@ func (tm *testMonitor) summarizeLatencies(buffer *bytes.Buffer, i int) {
 	}
 }
 
-func doCacheTest(c *Cache, t *testing.T) (map[interface{}]int, map[string]int) {
+func doCacheTest(pc *PrefetchCache, t *testing.T) (map[interface{}]int, map[string]int) {
 	start := time.Now()
-	mon := newTestMonitor()
-	c = c.WithChannelBasedMonitor(
-		mon, &monChSize, &monChSize, &monChSize, &monChSize, &monChSize,
-	)
-	c.debugEvents = make(chan debugEvent, 20000)
+	pc = (pc.WithChannelBasedMonitor(
+		newTestMonitor, &monChSize, &monChSize, &monChSize, &monChSize, &monChSize,
+	)).(*PrefetchCache)
+	pc.debugEvents = make(chan debugEvent, 20000)
 	ks := getKeys()
 	vals := make(chan interface{}, totalRequestPerRound*rounds)
 	for r := 0; r < rounds; r++ {
@@ -197,7 +196,7 @@ func doCacheTest(c *Cache, t *testing.T) (map[interface{}]int, map[string]int) {
 		for _, k := range ks {
 			for i := 0; i < keyContention; i++ {
 				go func(key interface{}) {
-					v, err := c.Get(key)
+					v, err := pc.Get(key)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -208,9 +207,9 @@ func doCacheTest(c *Cache, t *testing.T) (map[interface{}]int, map[string]int) {
 		}
 		wg.Wait()
 	}
-	c.Close()
+	pc.Close()
 	close(vals)
-	close(c.debugEvents)
+	close(pc.debugEvents)
 	uniqVals := make(map[interface{}]int)
 	for val := range vals {
 		if _, ok := uniqVals[val]; ok {
@@ -221,7 +220,7 @@ func doCacheTest(c *Cache, t *testing.T) (map[interface{}]int, map[string]int) {
 	}
 
 	debEvents := make(map[string]int)
-	for evt := range c.debugEvents {
+	for evt := range pc.debugEvents {
 		if _, ok := debEvents[evt.name]; ok {
 			debEvents[evt.name]++
 		} else {
@@ -230,7 +229,7 @@ func doCacheTest(c *Cache, t *testing.T) (map[interface{}]int, map[string]int) {
 	}
 	t.Logf("Test duration: %v", time.Since(start))
 	t.Logf("Unique get vals: %d", len(uniqVals))
-	t.Log(mon.summary())
+	t.Log(pc.monitor.(*testMonitor).summary())
 
 	return uniqVals, debEvents
 }
@@ -243,13 +242,14 @@ func TestWarmedNoRefreshNoEvict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	pc := c.(*PrefetchCache)
 	keys := getKeys()
-	if err := c.Warmup(10, keys...); err != nil {
+	if err := c.Warmup(10, keys); err != nil {
 		t.Fatal(err)
 	}
-	uniqVals, _ := doCacheTest(c, t)
+	uniqVals, _ := doCacheTest(pc, t)
 	assert.Equal(t, len(keys), len(uniqVals))
-	mon := ((c.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
+	mon := ((pc.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
 	assert.Equal(t, uint32(0), mon.getRefreshCount())
 }
 
@@ -259,16 +259,17 @@ func TestWarmedRefreshNoEvict(t *testing.T) {
 		&mockFetcher{mockBackend: &mockBackend{useTimestampValue: true, perCallSleep: cacheTestBackendDelay}},
 		nil, nil,
 	)
+	pc := c.(*PrefetchCache)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c = c.WithGlobalRefreshInterval(&refresh)
+	pc = pc.WithGlobalRefreshInterval(&refresh).(*PrefetchCache)
 	keys := getKeys()
-	if err := c.Warmup(10, keys...); err != nil {
+	if err := pc.Warmup(10, keys); err != nil {
 		t.Fatal(err)
 	}
-	doCacheTest(c, t)
-	mon := ((c.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
+	doCacheTest(pc, t)
+	mon := ((pc.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
 	refreshes := int(mon.getRefreshCount())
 	assert.True(t, refreshes > 0)
 }
@@ -282,11 +283,12 @@ func TestColdRefreshNoEvict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c = c.WithGlobalRefreshInterval(&refresh)
-	uniqVals, debEvents := doCacheTest(c, t)
+	pc := c.(*PrefetchCache)
+	pc = pc.WithGlobalRefreshInterval(&refresh).(*PrefetchCache)
+	uniqVals, debEvents := doCacheTest(pc, t)
 	spew.Dump(uniqVals)
 	spew.Dump(debEvents)
-	mon := ((c.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
+	mon := ((pc.monitor.(*ChannelBasedMonitor)).monitor).(*testMonitor)
 	refreshes := int(mon.getRefreshCount())
 	assert.True(t, refreshes > 0)
 	assert.Equal(t, int(mon.getSetCount()), len(uniqVals))

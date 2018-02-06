@@ -7,7 +7,7 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 )
 
-func (c *Cache) Warmup(concurrency uint, keys ...interface{}) error {
+func (c *PrefetchCache) Warmup(concurrency uint, keys []interface{}) error {
 	if keys == nil || len(keys) == 0 {
 		return nil
 	}
