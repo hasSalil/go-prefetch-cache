@@ -2,6 +2,7 @@ package cache
 
 import (
 	"errors"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
@@ -10,14 +11,19 @@ var value = "value"
 var errBackend = errors.New("some error")
 
 type mockBackend struct {
-	perCallSleep time.Duration
-	touches      uint32
+	useTimestampValue bool
+	perCallSleep      time.Duration
+	touches           uint32
 }
 
 func (mb *mockBackend) do() (interface{}, error) {
 	time.Sleep(mb.perCallSleep)
 	atomic.AddUint32(&mb.touches, 1)
-	return value, nil
+	r := value
+	if mb.useTimestampValue {
+		r = strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+	return r, nil
 }
 
 func (mb *mockBackend) doErr() (interface{}, error) {

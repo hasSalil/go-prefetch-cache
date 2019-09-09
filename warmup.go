@@ -7,7 +7,7 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 )
 
-func (c *Cache) Warmup(concurrency uint, keys ...interface{}) error {
+func (c *PrefetchCache) Warmup(concurrency uint, keys []interface{}) error {
 	if keys == nil || len(keys) == 0 {
 		return nil
 	}
@@ -30,7 +30,7 @@ func (c *Cache) Warmup(concurrency uint, keys ...interface{}) error {
 		keyShard := keys[s:e]
 		go func() {
 			for _, key := range keyShard {
-				if _, err := c.RefreshKey(key); err != nil {
+				if _, err := c.refreshKey(key, ""); err != nil {
 					errCh <- err
 				}
 			}
@@ -42,16 +42,6 @@ func (c *Cache) Warmup(concurrency uint, keys ...interface{}) error {
 	var errs error
 	for fetchErr := range errCh {
 		errs = multierror.Append(errs, fetchErr)
-	}
-	return errs
-}
-
-func (c *Cache) WarmupChannel(keyCh <-chan *interface{}) error {
-	var errs error
-	for key := range keyCh {
-		if _, err := c.RefreshKey(key); err != nil {
-			errs = multierror.Append(errs, err)
-		}
 	}
 	return errs
 }
